@@ -31,7 +31,15 @@ createAppKit({
   projectId,
   metadata,
   features: {
-    analytics: true
+    analytics: true,
+    balance: false,
+    history: false,
+    onramp: false,
+    swaps: false
+  },
+  themeMode: 'dark',
+  themeVariables: {
+    '--w3m-accent': '#00d2aa'
   }
 })
 

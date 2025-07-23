@@ -5,26 +5,25 @@ function Header() {
 
   return (
     <header className="header">
-      <div className="header-content">
-        <div className="logo">
-          <div className="logo-icon">E</div>
-          <h1>Escrow</h1>
-        </div>
-        
-        <nav className="header-nav">
-          <a href="#" className="nav-item">Voting</a>
-          <a href="#" className="nav-item">Compliance</a>
-          <a href="#" className="nav-item">📄 Docs</a>
-        </nav>
-        
-        <div className="header-actions">
-          <div className="network-badge">
-            <div className="network-dot"></div>
-            Ethereum
-          </div>
-          <button className="settings-btn">⚙️ Settings</button>
-          <appkit-button />
-        </div>
+      <a href="#" className="logo">
+        <div className="tornado-icon">🌪</div>
+        SafeEscrow
+      </a>
+      
+      <nav className="nav-links">
+        <a href="#">Escrow</a>
+        <a href="#">History</a>
+        <a href="#">Compliance</a>
+        <a href="#">Docs</a>
+      </nav>
+      
+      <div className="header-right">
+        <button className="network-btn">
+          <div className="network-icon"></div>
+          Ethereum
+        </button>
+        <button className="settings-btn">⚙</button>
+        <appkit-button />
       </div>
     </header>
   )
