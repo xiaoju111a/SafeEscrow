@@ -6,6 +6,48 @@ A privacy-preserving escrow platform built with Zama's Fully Homomorphic Encrypt
 
 SafeEscrow leverages **Zama's FHEVM** to provide unprecedented privacy protection for escrow transactions while maintaining full functionality and transparency where needed.
 
+## 📚 Project History
+
+### Development Timeline
+
+**Phase 1: Foundation (Initial)**
+- Created basic escrow smart contract architecture
+- Implemented 2/3 multi-signature mechanism
+- Developed React frontend with wallet connectivity
+- Deployed initial version on Sepolia testnet
+
+**Phase 2: FHEVM Integration (v0.6)**
+- Integrated Zama's FHEVM v0.6 technology
+- Implemented encrypted amount storage using `TFHE` library
+- Added private approval system with `einput` types
+- Faced compatibility challenges with standard Ethereum networks
+
+**Phase 3: FHEVM Migration (v0.7)**
+- Successfully migrated to Zama FHEVM v0.7
+- Updated from `TFHE` → `FHE` library
+- Changed input types from `einput` → `externalEuint64/externalEbool`
+- Implemented `FHE.fromExternal()` for proper encryption handling
+
+**Phase 4: Dual Architecture (Current)**
+- Created simplified version for standard networks
+- Maintained FHEVM version for privacy-critical deployments
+- Achieved full functionality on both architectures
+- Completed comprehensive testing and documentation
+
+### Technical Evolution
+
+**Smart Contract Development:**
+```
+v1.0: Basic Escrow → v2.0: FHEVM v0.6 → v2.5: FHEVM v0.7 → v3.0: Dual Architecture
+```
+
+**Key Milestones:**
+- ✅ First working escrow implementation
+- ✅ FHEVM privacy integration
+- ✅ Library migration and API updates
+- ✅ Production-ready deployment
+- ✅ Comprehensive documentation
+
 ## ✨ Features
 
 ### Core Functionality
@@ -19,7 +61,7 @@ SafeEscrow leverages **Zama's FHEVM** to provide unprecedented privacy protectio
 - **Encrypted Amounts**: Transaction values hidden from public view using homomorphic encryption
 - **Private Approvals**: Signature states encrypted to prevent front-running and manipulation
 - **Confidential Disputes**: Dispute reasons and arbitration decisions kept private
-- **Zero-Knowledge Proofs**: Verify transaction validity without revealing sensitive data
+- **Computational Privacy**: Perform operations on encrypted data without decryption
 
 ## 🏗 Architecture
 
@@ -177,26 +219,165 @@ ebool isApproved = FHE.decrypt(buyerApproval);
 - **State Validation**: Comprehensive state checking before operations
 - **Reentrancy Protection**: Guards against reentrancy attacks
 
+## 📖 Documentation
+
+### Smart Contract Documentation
+
+#### Core Functions
+
+**FHEVM Version (`FHEEscrow.sol`)**
+```solidity
+// Create encrypted escrow with private amount
+function createEscrow(
+    address _seller,
+    address _arbitrator,
+    externalEuint64 calldata _encryptedAmount,
+    string calldata _description,
+    uint256 _timeout
+) external returns (uint256);
+
+// Fund escrow with encrypted amount verification
+function fundEscrow(
+    uint256 escrowId,
+    externalEuint64 calldata _encryptedAmount
+) external payable;
+
+// Private approval with encrypted signature
+function signApproval(
+    uint256 escrowId,
+    externalEbool calldata _approval
+) external;
+```
+
+**Simple Version (`SimpleEscrow.sol`)**
+```solidity
+// Create and fund escrow in one transaction
+function createEscrow(
+    address _seller,
+    address _arbitrator,
+    string calldata _description,
+    uint256 _timeout
+) external payable returns (uint256);
+
+// Public signature for completion
+function signApproval(uint256 escrowId) external;
+
+// Emergency refund after timeout
+function emergencyRefund(uint256 escrowId) external;
+```
+
+#### State Management
+```solidity
+enum EscrowState {
+    Created,    // Initial state
+    Funded,     // Ready for execution
+    Completed,  // Successfully finished
+    Disputed,   // Under arbitration
+    Cancelled   // Refunded/cancelled
+}
+```
+
+### Frontend Integration
+
+#### Wallet Connection
+```javascript
+import { useAccount, useConnect } from 'wagmi';
+import { getContract } from 'viem';
+
+const { address, isConnected } = useAccount();
+const { connect, connectors } = useConnect();
+```
+
+#### Contract Interaction
+```javascript
+// Create escrow (simplified version)
+const createEscrow = async (seller, arbitrator, description, amount) => {
+  const contract = getContractInstance();
+  const tx = await contract.write.createEscrow([
+    seller,
+    arbitrator, 
+    description,
+    calculateTimeout(7) // 7 days
+  ], {
+    value: parseEther(amount),
+    gas: 300000n
+  });
+  return tx;
+};
+```
+
+### Development Guide
+
+#### Local Development Setup
+```bash
+# 1. Clone and install
+git clone <repository>
+npm install
+
+# 2. Configure environment
+cp .env.example .env
+# Edit .env with your RPC URLs and private key
+
+# 3. Deploy contracts locally
+npx hardhat node
+npx hardhat run scripts/deploy-simple.js --network localhost
+
+# 4. Start frontend
+npm run dev
+```
+
+#### Testing Smart Contracts
+```bash
+# Compile contracts
+npx hardhat compile
+
+# Run contract tests
+npx hardhat test
+
+# Test on Sepolia
+npx hardhat run scripts/deploy-simple.js --network sepolia
+
+# Verify deployed contract
+npx hardhat verify <contract-address> --network sepolia
+```
+
 ## 🧪 Testing
 
-### Run Tests
+### Automated Test Suite
 ```bash
-# Unit tests
+# Smart contract tests
+npx hardhat test
+
+# Frontend tests
 npm test
 
 # Integration tests
-npx hardhat test
+npm run test:integration
 
-# Local blockchain testing
-npm run test:local
+# End-to-end tests  
+npm run test:e2e
 ```
 
-### Test Scenarios
-- ✅ Escrow creation and funding
-- ✅ Multi-party signature verification
-- ✅ Dispute resolution workflow
-- ✅ Timeout and emergency refund
-- ✅ Privacy preservation (FHEVM)
+### Manual Testing Scenarios
+
+#### Core Functionality Tests
+- ✅ **Escrow Creation**: Create new escrow with proper parameters
+- ✅ **Multi-party Signatures**: Verify 2/3 signature requirement
+- ✅ **State Transitions**: Test all state changes (Created → Funded → Completed)
+- ✅ **Timeout Handling**: Emergency refund after timeout period
+- ✅ **Dispute Resolution**: Arbitrator decision workflow
+
+#### Privacy Tests (FHEVM)
+- ✅ **Amount Encryption**: Verify amounts are encrypted on-chain
+- ✅ **Approval Privacy**: Confirm signature states are private
+- ✅ **Decryption Access**: Test proper access control for encrypted data
+- ✅ **Computation Privacy**: Verify operations on encrypted data
+
+#### Frontend Integration Tests
+- ✅ **Wallet Connection**: Test multiple wallet providers
+- ✅ **Transaction Flow**: Complete escrow lifecycle
+- ✅ **Error Handling**: Network errors and transaction failures
+- ✅ **UI Responsiveness**: Mobile and desktop compatibility
 
 ## 📊 Contract Information
 
@@ -273,10 +454,11 @@ function signApproval(
 ```
 
 ### Privacy Benefits
-1. **Amount Confidentiality**: Transaction amounts remain private
-2. **Approval Privacy**: Prevents front-running and manipulation
-3. **Dispute Privacy**: Confidential arbitration process
-4. **Metadata Protection**: Additional transaction details encrypted
+1. **Amount Confidentiality**: Transaction amounts remain private from public blockchain analysis
+2. **Approval Privacy**: Prevents front-running and manipulation by hiding signature intentions
+3. **Dispute Privacy**: Confidential arbitration process protects sensitive business information
+4. **Computational Privacy**: Perform verification and calculations without revealing underlying data
+5. **Metadata Protection**: Additional transaction details encrypted to prevent information leakage
 
 ### FHEVM Migration Path
 The project supports both encrypted (FHEVM) and standard versions:

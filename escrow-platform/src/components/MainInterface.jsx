@@ -371,31 +371,6 @@ function MainInterface() {
                 />
               </div>
               
-              {/* Multi-sig Preview */}
-              <div className="multisig-preview">
-                <div className="multisig-title">
-                  🛡️ 2/3 Multi-Signature Protection
-                </div>
-                <div className="signer-item">
-                  <div className="signer-info">
-                    <span>Buyer (You)</span>
-                  </div>
-                  <span className="signer-role role-buyer">BUYER</span>
-                </div>
-                <div className="signer-item">
-                  <div className="signer-info">
-                    <span>{getSellerPreview()}</span>
-                  </div>
-                  <span className="signer-role role-seller">SELLER</span>
-                </div>
-                <div className="signer-item">
-                  <div className="signer-info">
-                    <span>{shortenAddress(DEFAULT_ARBITRATOR)}</span>
-                  </div>
-                  <span className="signer-role role-arbitrator">ARBITRATOR</span>
-                </div>
-              </div>
-              
               <button type="submit" className="connect-btn" disabled={isLoading}>
                 {isLoading ? 'Creating...' : 'Create Escrow'}
               </button>
@@ -449,8 +424,6 @@ function MainInterface() {
       <div className="stats-panel">
         <div className="stats-header">
           <h3 className="stats-title">Statistics</h3>
-          <span className="version-badge">Simple v1.0</span>
-          <div className="version-info">✅ Full Featured Version</div>
         </div>
         
         <div className="anonymity-set">
@@ -470,6 +443,31 @@ function MainInterface() {
                 <span className="tx-time">{escrow.time}</span>
               </div>
             ))}
+          </div>
+        </div>
+        
+        {/* Multi-sig Protection Info */}
+        <div className="multisig-preview">
+          <div className="multisig-title">
+            🛡️ 2/3 Multi-Signature Protection
+          </div>
+          <div className="signer-item">
+            <div className="signer-info">
+              <span>Buyer (You)</span>
+            </div>
+            <span className="signer-role role-buyer">BUYER</span>
+          </div>
+          <div className="signer-item">
+            <div className="signer-info">
+              <span>{getSellerPreview()}</span>
+            </div>
+            <span className="signer-role role-seller">SELLER</span>
+          </div>
+          <div className="signer-item">
+            <div className="signer-info">
+              <span>{shortenAddress(DEFAULT_ARBITRATOR)}</span>
+            </div>
+            <span className="signer-role role-arbitrator">ARBITRATOR</span>
           </div>
         </div>
       </div>

@@ -1,20 +1,41 @@
 import { useAccount } from 'wagmi'
 
-function Header() {
+function Header({ currentPage, setCurrentPage }) {
   const { address, isConnected } = useAccount()
+
+  const handleNavClick = (page) => {
+    setCurrentPage(page)
+  }
 
   return (
     <header className="header">
-      <a href="#" className="logo">
+      <button 
+        onClick={() => handleNavClick('escrow')}
+        className="logo"
+      >
         <div className="tornado-icon">🌪</div>
         SafeEscrow
-      </a>
+      </button>
       
       <nav className="nav-links">
-        <a href="#">Escrow</a>
-        <a href="#">History</a>
-        <a href="#">Compliance</a>
-        <a href="#">Docs</a>
+        <button 
+          className={currentPage === 'escrow' ? 'nav-link active' : 'nav-link'}
+          onClick={() => handleNavClick('escrow')}
+        >
+          Escrow
+        </button>
+        <button 
+          className={currentPage === 'history' ? 'nav-link active' : 'nav-link'}
+          onClick={() => handleNavClick('history')}
+        >
+          History
+        </button>
+        <button 
+          className={currentPage === 'docs' ? 'nav-link active' : 'nav-link'}
+          onClick={() => handleNavClick('docs')}
+        >
+          Docs
+        </button>
       </nav>
       
       <div className="header-right">
