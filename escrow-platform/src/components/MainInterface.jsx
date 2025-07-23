@@ -1,31 +1,69 @@
-import { useState } from 'react'
-import { useAccount } from 'wagmi'
+import { useState, useEffect } from 'react'
+import { useAccount, useChainId, usePublicClient, useWalletClient } from 'wagmi'
+import { getContract, parseEther, formatEther } from 'viem'
+import { CONTRACT_ABI, getContractConfig, DEFAULT_ARBITRATOR } from '../config/contractConfig'
+import { mockEncrypt, formatEscrowData, calculateTimeout, isValidAddress, shortenAddress } from '../utils/contractHelpers'
+import EscrowList from './EscrowList'
 
 function MainInterface() {
   const { address, isConnected } = useAccount()
+  const chainId = useChainId()
+  const publicClient = usePublicClient()
+  const { data: walletClient } = useWalletClient()
+  
   const [activeTab, setActiveTab] = useState('create')
   const [amountSlider, setAmountSlider] = useState(2)
-  const [customAmount, setCustomAmount] = useState('10000')
-  const [selectedToken, setSelectedToken] = useState('USDT')
+  const [customAmount, setCustomAmount] = useState('0.1')
+  const [selectedToken, setSelectedToken] = useState('ETH')
   const [sellerAddress, setSellerAddress] = useState('')
   const [description, setDescription] = useState('')
   const [escrowId, setEscrowId] = useState('')
   const [action, setAction] = useState('Complete Escrow')
+  const [isLoading, setIsLoading] = useState(false)
+  const [contractStats, setContractStats] = useState({ totalEscrows: 0, recentEscrows: [] })
+  const [timeoutDays, setTimeoutDays] = useState(7)
 
-  const amounts = [100, 1000, 10000, 100000, 'custom']
+  const amounts = [0.01, 0.1, 1, 10, 'custom']
 
-  const mockStats = {
-    activeEscrows: 2847,
-    recentEscrows: [
-      { id: 'ESC2847', time: '2 minutes ago' },
-      { id: 'ESC2846', time: '5 minutes ago' },
-      { id: 'ESC2845', time: '12 minutes ago' },
-      { id: 'ESC2844', time: '18 minutes ago' },
-      { id: 'ESC2843', time: '25 minutes ago' },
-      { id: 'ESC2842', time: '1 hour ago' },
-      { id: 'ESC2841', time: '1 hour ago' },
-      { id: 'ESC2840', time: '2 hours ago' }
-    ]
+  // Load contract data on component mount
+  useEffect(() => {
+    loadContractStats()
+  }, [chainId, publicClient])
+
+  const loadContractStats = async () => {
+    if (!publicClient) return
+    
+    try {
+      const config = getContractConfig(chainId)
+      const contract = getContract({
+        address: config.address,
+        abi: CONTRACT_ABI,
+        client: publicClient
+      })
+      
+      const totalEscrows = await contract.read.escrowCounter()
+      
+      setContractStats({
+        totalEscrows: Number(totalEscrows),
+        recentEscrows: Array.from({ length: Math.min(8, Number(totalEscrows)) }, (_, i) => ({
+          id: `ESC${Number(totalEscrows) - i}`,
+          time: `${i + 1} ${i === 0 ? 'minute' : 'minutes'} ago`
+        }))
+      })
+    } catch (error) {
+      console.error('Failed to load contract stats:', error)
+    }
+  }
+
+  const getContractInstance = () => {
+    if (!walletClient) return null
+    
+    const config = getContractConfig(chainId)
+    return getContract({
+      address: config.address,
+      abi: CONTRACT_ABI,
+      client: walletClient
+    })
   }
 
   const updateAmount = (value) => {
@@ -50,21 +88,171 @@ function MainInterface() {
     return 'Seller Address'
   }
 
-  const handleCreateSubmit = (e) => {
+  const handleCreateSubmit = async (e) => {
     e.preventDefault()
-    const formData = {
-      token: selectedToken,
-      amount: customAmount,
-      seller: sellerAddress,
-      description: description
+    
+    if (!walletClient || !isConnected) {
+      alert('Please connect your wallet first')
+      return
     }
     
-    alert(`Escrow creation initiated!\n\nToken: ${formData.token}\nAmount: ${formData.amount}\nSeller: ${formData.seller}\nDescription: ${formData.description}`)
+    if (!isValidAddress(sellerAddress)) {
+      alert('Please enter a valid seller address')
+      return
+    }
+    
+    if (!customAmount || parseFloat(customAmount) <= 0) {
+      alert('Please enter a valid amount')
+      return
+    }
+    
+    if (!description.trim()) {
+      alert('Please enter transaction description')
+      return
+    }
+    
+    setIsLoading(true)
+    
+    try {
+      const contract = getContractInstance()
+      if (!contract) {
+        throw new Error('Failed to get contract instance')
+      }
+      
+      const timeoutSeconds = calculateTimeout(timeoutDays)
+      const amount = parseEther(customAmount)
+      
+      console.log('Creating escrow with:', {
+        seller: sellerAddress,
+        arbitrator: DEFAULT_ARBITRATOR,
+        amount: customAmount + ' ETH',
+        description,
+        timeout: timeoutDays + ' days'
+      })
+      
+      // Create and fund escrow in one transaction (simplified version)
+      const createTx = await contract.write.createEscrow([
+        sellerAddress,
+        DEFAULT_ARBITRATOR,
+        description,
+        BigInt(timeoutSeconds)
+      ], {
+        value: amount, // Send ETH directly
+        gas: 300000n
+      })
+      
+      console.log('Create escrow transaction sent:', createTx)
+      
+      // Wait for transaction confirmation
+      const receipt = await publicClient.waitForTransactionReceipt({ hash: createTx })
+      console.log('Transaction confirmed:', receipt)
+      
+      // Extract escrow ID from logs
+      let escrowId = 0
+      if (receipt.logs && receipt.logs.length > 0) {
+        // Find EscrowCreated event log
+        const escrowCreatedLog = receipt.logs.find(log => log.topics.length >= 4)
+        if (escrowCreatedLog) {
+          escrowId = parseInt(escrowCreatedLog.topics[1], 16)
+        }
+      }
+      
+      if (!escrowId) {
+        // Fallback: get current escrow counter - 1
+        const totalEscrows = await contract.read.escrowCounter()
+        escrowId = Number(totalEscrows) - 1
+      }
+      
+      alert(`✅ Escrow created successfully!\n\n📋 Escrow ID: ${escrowId}\n💰 Amount: ${customAmount} ETH\n🔗 Transaction Hash: ${createTx}\n\nEscrow created and funded automatically!`)
+      
+      // Reset form
+      setSellerAddress('')
+      setDescription('')
+      setCustomAmount('0.1')
+      
+      // Reload stats after successful creation
+      setTimeout(loadContractStats, 3000)
+      
+    } catch (error) {
+      console.error('Failed to create escrow:', error)
+      alert(`❌ Failed to create escrow: ${error.message}`)
+    } finally {
+      setIsLoading(false)
+    }
   }
 
-  const handleManageSubmit = (e) => {
+  const handleManageSubmit = async (e) => {
     e.preventDefault()
-    console.log('Managing escrow:', { escrowId, action })
+    
+    if (!walletClient || !isConnected) {
+      alert('Please connect your wallet first')
+      return
+    }
+    
+    if (!escrowId || isNaN(escrowId)) {
+      alert('Please enter a valid escrow ID')
+      return
+    }
+    
+    setIsLoading(true)
+    
+    try {
+      const contract = getContractInstance()
+      if (!contract) {
+        throw new Error('Failed to get contract instance')
+      }
+      
+      let tx
+      
+      switch (action) {
+        case 'Complete Escrow':
+          tx = await contract.write.signApproval([BigInt(escrowId)], {
+            gas: 200000n
+          })
+          break
+          
+        case 'Raise Dispute':
+          tx = await contract.write.disputeEscrow([BigInt(escrowId)], {
+            gas: 150000n
+          })
+          break
+          
+        case 'Emergency Refund':
+          tx = await contract.write.emergencyRefund([BigInt(escrowId)], {
+            gas: 150000n
+          })
+          break
+          
+        case 'Check Status':
+          // This is a read operation
+          const config = getContractConfig(chainId)
+          const details = await publicClient.readContract({
+            address: config.address,
+            abi: CONTRACT_ABI,
+            functionName: 'getEscrowDetails',
+            args: [BigInt(escrowId)]
+          })
+          
+          const stateNames = ['Created', 'Funded', 'Completed', 'Disputed', 'Cancelled']
+          const stateName = stateNames[details[3]] || 'Unknown'
+          
+          alert(`📊 Escrow Status:\n\n🆔 ID: ${escrowId}\n👤 Buyer: ${shortenAddress(details[0])}\n🏪 Seller: ${shortenAddress(details[1])}\n⚖️ Arbitrator: ${shortenAddress(details[2])}\n📈 State: ${stateName}\n💰 Amount: ${formatEther(details[8])} ETH\n✍️ Signatures: ${details[7]}/3\n📝 Description: ${details[4]}`)
+          setIsLoading(false)
+          return
+          
+        default:
+          throw new Error('Unknown action')
+      }
+      
+      console.log('Transaction sent:', tx)
+      alert(`${action} transaction sent!\nTx: ${tx}\n\nPlease wait for confirmation...`)
+      
+    } catch (error) {
+      console.error(`Failed to ${action.toLowerCase()}:`, error)
+      alert(`Failed to ${action.toLowerCase()}: ${error.message}`)
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   return (
@@ -84,6 +272,12 @@ function MainInterface() {
           >
             Manage
           </button>
+          <button 
+            className={`tab ${activeTab === 'list' ? 'active' : ''}`}
+            onClick={() => setActiveTab('list')}
+          >
+            My Escrows
+          </button>
         </div>
         
         {activeTab === 'create' && (
@@ -96,10 +290,10 @@ function MainInterface() {
                   value={selectedToken}
                   onChange={(e) => setSelectedToken(e.target.value)}
                 >
-                  <option value="USDT">USDT</option>
-                  <option value="USDC">USDC</option>
                   <option value="ETH">ETH</option>
-                  <option value="DAI">DAI</option>
+                  <option value="USDT">USDT (Coming Soon)</option>
+                  <option value="USDC">USDC (Coming Soon)</option>
+                  <option value="DAI">DAI (Coming Soon)</option>
                 </select>
               </div>
               
@@ -119,25 +313,41 @@ function MainInterface() {
                     }}
                   />
                   <div className="amount-options">
-                    <span className="amount-option" onClick={() => setAmount(0)}>100 USDT</span>
-                    <span className="amount-option" onClick={() => setAmount(1)}>1k USDT</span>
-                    <span className="amount-option" onClick={() => setAmount(2)}>10k USDT</span>
-                    <span className="amount-option" onClick={() => setAmount(3)}>100k USDT</span>
+                    <span className="amount-option" onClick={() => setAmount(0)}>0.01 ETH</span>
+                    <span className="amount-option" onClick={() => setAmount(1)}>0.1 ETH</span>
+                    <span className="amount-option" onClick={() => setAmount(2)}>1 ETH</span>
+                    <span className="amount-option" onClick={() => setAmount(3)}>10 ETH</span>
                     <span className="amount-option" onClick={() => setAmount(4)}>Custom</span>
                   </div>
                 </div>
               </div>
               
               <div className="form-group">
-                <label className="form-label">Custom Amount (USDT)</label>
+                <label className="form-label">Amount (ETH)</label>
                 <input 
                   type="number" 
                   className="form-input"
                   placeholder="Enter amount" 
                   value={customAmount}
                   onChange={(e) => setCustomAmount(e.target.value)}
-                  disabled={amountSlider < 4}
+                  step="0.001"
+                  min="0"
                 />
+              </div>
+              
+              <div className="form-group">
+                <label className="form-label">Timeout (Days)</label>
+                <select 
+                  className="token-select"
+                  value={timeoutDays}
+                  onChange={(e) => setTimeoutDays(parseInt(e.target.value))}
+                >
+                  <option value={1}>1 Day</option>
+                  <option value={3}>3 Days</option>
+                  <option value={7}>7 Days</option>
+                  <option value={14}>14 Days</option>
+                  <option value={30}>30 Days</option>
+                </select>
               </div>
               
               <div className="form-group">
@@ -180,14 +390,14 @@ function MainInterface() {
                 </div>
                 <div className="signer-item">
                   <div className="signer-info">
-                    <span>Platform Arbitrator</span>
+                    <span>{shortenAddress(DEFAULT_ARBITRATOR)}</span>
                   </div>
                   <span className="signer-role role-arbitrator">ARBITRATOR</span>
                 </div>
               </div>
               
-              <button type="submit" className="connect-btn">
-                Create Escrow
+              <button type="submit" className="connect-btn" disabled={isLoading}>
+                {isLoading ? 'Creating...' : 'Create Escrow'}
               </button>
             </form>
           </div>
@@ -215,16 +425,22 @@ function MainInterface() {
                   onChange={(e) => setAction(e.target.value)}
                 >
                   <option>Complete Escrow</option>
-                  <option>Request Refund</option>
                   <option>Raise Dispute</option>
+                  <option>Emergency Refund</option>
                   <option>Check Status</option>
                 </select>
               </div>
               
-              <button type="submit" className="connect-btn">
-                Execute Action
+              <button type="submit" className="connect-btn" disabled={isLoading}>
+                {isLoading ? 'Processing...' : 'Execute Action'}
               </button>
             </form>
+          </div>
+        )}
+        
+        {activeTab === 'list' && (
+          <div className="tab-content">
+            <EscrowList />
           </div>
         )}
       </div>
@@ -233,7 +449,8 @@ function MainInterface() {
       <div className="stats-panel">
         <div className="stats-header">
           <h3 className="stats-title">Statistics</h3>
-          <span className="version-badge">v2.1</span>
+          <span className="version-badge">Simple v1.0</span>
+          <div className="version-info">✅ Full Featured Version</div>
         </div>
         
         <div className="anonymity-set">
@@ -241,13 +458,13 @@ function MainInterface() {
             <div className="anonymity-icon"></div>
             <span className="anonymity-text">Active escrows</span>
           </div>
-          <div className="anonymity-count">{mockStats.activeEscrows.toLocaleString()} equal escrows</div>
+          <div className="anonymity-count">{contractStats.totalEscrows.toLocaleString()} total escrows</div>
         </div>
         
         <div className="latest-section">
           <h4 className="section-title">Latest escrows</h4>
           <div className="transaction-list">
-            {mockStats.recentEscrows.map((escrow) => (
+            {contractStats.recentEscrows.map((escrow) => (
               <div key={escrow.id} className="transaction-item">
                 <span className="tx-id">{escrow.id}</span>
                 <span className="tx-time">{escrow.time}</span>

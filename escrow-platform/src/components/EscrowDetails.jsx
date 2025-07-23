@@ -1,116 +1,208 @@
-import { useState } from 'react'
-import { useAccount } from 'wagmi'
+import { useState, useEffect } from 'react'
+import { useAccount, usePublicClient, useChainId, useWalletClient } from 'wagmi'
+import { getContract } from 'viem'
+import { CONTRACT_ABI, getContractConfig } from '../config/contractConfig'
+import { formatEscrowData, getEscrowStateText, getEscrowStateColor, shortenAddress, formatTimestamp, getTimeRemaining, mockEncrypt } from '../utils/contractHelpers'
 
-function EscrowDetails({ escrow, onUpdateEscrow, onBack }) {
+function EscrowDetails({ escrowId, onBack }) {
   const { address } = useAccount()
+  const chainId = useChainId()
+  const publicClient = usePublicClient()
+  const { data: walletClient } = useWalletClient()
+  
+  const [escrowData, setEscrowData] = useState(null)
+  const [loading, setLoading] = useState(true)
   const [isProcessing, setIsProcessing] = useState(false)
+  const [error, setError] = useState(null)
+  
+  useEffect(() => {
+    loadEscrowDetails()
+  }, [escrowId, publicClient])
+  
+  const loadEscrowDetails = async () => {
+    if (!publicClient || !escrowId) return
+    
+    setLoading(true)
+    setError(null)
+    
+    try {
+      const config = getContractConfig(chainId)
+      
+      const details = await publicClient.readContract({
+        address: config.address,
+        abi: CONTRACT_ABI,
+        functionName: 'getEscrowDetails',
+        args: [BigInt(escrowId)]
+      })
+      
+      const formattedData = formatEscrowData(details)
+      setEscrowData(formattedData)
+      
+    } catch (err) {
+      console.error('Failed to load escrow details:', err)
+      setError('Failed to load escrow details')
+    } finally {
+      setLoading(false)
+    }
+  }
 
   const isParticipant = () => {
-    return address === escrow.buyer || address === escrow.seller || address === escrow.arbitrator
+    if (!escrowData) return false
+    return address === escrowData.buyer || address === escrowData.seller || address === escrowData.arbitrator
   }
 
   const getUserRole = () => {
-    if (address === escrow.buyer) return 'buyer'
-    if (address === escrow.seller) return 'seller' 
-    if (address === escrow.arbitrator) return 'arbitrator'
+    if (!escrowData) return 'observer'
+    if (address === escrowData.buyer) return 'buyer'
+    if (address === escrowData.seller) return 'seller' 
+    if (address === escrowData.arbitrator) return 'arbitrator'
     return 'observer'
   }
 
-  const hasUserSigned = () => {
-    return escrow.signatures[address] || false
+  const hasUserSigned = async () => {
+    if (!publicClient || !escrowData) return false
+    
+    try {
+      const config = getContractConfig(chainId)
+      const hasSigned = await publicClient.readContract({
+        address: config.address,
+        abi: CONTRACT_ABI,
+        functionName: 'hasUserSigned',
+        args: [BigInt(escrowId), address]
+      })
+      return hasSigned
+    } catch (error) {
+      console.error('Failed to check signature status:', error)
+      return false
+    }
   }
 
-  const canUserSign = () => {
-    return isParticipant() && escrow.state === 'funded' && !hasUserSigned()
+  const canUserSign = async () => {
+    if (!escrowData) return false
+    const signed = await hasUserSigned()
+    return isParticipant() && escrowData.state === 1 && !signed // 1 = Funded state
   }
 
   const isTimeoutReached = () => {
-    return Date.now() > new Date(escrow.createdAt).getTime() + escrow.timeout
+    if (!escrowData) return false
+    const now = Math.floor(Date.now() / 1000)
+    return now > (escrowData.createdAt + escrowData.timeout)
   }
 
   const handleSignRelease = async () => {
-    if (!canUserSign()) return
+    if (!walletClient || !(await canUserSign())) return
 
     setIsProcessing(true)
     
-    // 模拟签名过程
-    setTimeout(() => {
-      const updatedEscrow = {
-        ...escrow,
-        signatures: {
-          ...escrow.signatures,
-          [address]: true
-        },
-        signatureCount: escrow.signatureCount + 1
-      }
-
-      // 检查是否达到2/3签名
-      if (updatedEscrow.signatureCount >= 2) {
-        updatedEscrow.state = 'completed'
-      }
-
-      onUpdateEscrow(updatedEscrow)
+    try {
+      const config = getContractConfig(chainId)
+      const contract = getContract({
+        address: config.address,
+        abi: CONTRACT_ABI,
+        client: walletClient
+      })
+      
+      const approvalData = mockEncrypt(1) // Mock approval = true
+      const tx = await contract.write.signApproval([
+        BigInt(escrowId),
+        approvalData.handle,
+        approvalData.proof
+      ])
+      
+      console.log('Sign approval transaction:', tx)
+      alert(`Signature transaction sent!\nTx: ${tx}\n\nPlease wait for confirmation...`)
+      
+      // Reload data after successful transaction
+      setTimeout(loadEscrowDetails, 3000)
+      
+    } catch (error) {
+      console.error('Failed to sign approval:', error)
+      alert(`Signature failed: ${error.message}`)
+    } finally {
       setIsProcessing(false)
-    }, 1000)
+    }
   }
 
   const handleSignRefund = async () => {
     const userRole = getUserRole()
     
-    // 只有买方和仲裁员可以签名退款
     if (userRole !== 'buyer' && userRole !== 'arbitrator') {
-      alert('只有买方和仲裁员可以签名退款')
+      alert('Only buyer and arbitrator can sign refund')
       return
     }
 
-    if (!canUserSign()) return
+    if (!walletClient || !(await canUserSign())) return
 
     setIsProcessing(true)
 
-    setTimeout(() => {
-      const updatedEscrow = {
-        ...escrow,
-        signatures: {
-          ...escrow.signatures,
-          [address]: true
-        }
-      }
-
-      // 检查是否买方和仲裁员都已签名
-      if (updatedEscrow.signatures[escrow.buyer] && updatedEscrow.signatures[escrow.arbitrator]) {
-        updatedEscrow.state = 'cancelled'
-      }
-
-      onUpdateEscrow(updatedEscrow)
+    try {
+      const config = getContractConfig(chainId)
+      const contract = getContract({
+        address: config.address,
+        abi: CONTRACT_ABI,
+        client: walletClient
+      })
+      
+      const refundReason = mockEncrypt(1) // Mock refund reason
+      const tx = await contract.write.requestRefund([
+        BigInt(escrowId),
+        refundReason.handle,
+        refundReason.proof
+      ])
+      
+      console.log('Request refund transaction:', tx)
+      alert(`Refund request sent!\nTx: ${tx}\n\nPlease wait for confirmation...`)
+      
+      setTimeout(loadEscrowDetails, 3000)
+      
+    } catch (error) {
+      console.error('Failed to request refund:', error)
+      alert(`Refund request failed: ${error.message}`)
+    } finally {
       setIsProcessing(false)
-    }, 1000)
+    }
   }
 
   const handleEmergencyRefund = async () => {
     if (getUserRole() !== 'buyer') {
-      alert('只有买方可以申请紧急退款')
+      alert('Only buyer can request emergency refund')
       return
     }
 
     if (!isTimeoutReached()) {
-      alert('未达到超时时间，无法申请紧急退款')
+      alert('Timeout not reached, cannot request emergency refund')
       return
     }
 
+    if (!walletClient) return
+
     setIsProcessing(true)
 
-    setTimeout(() => {
-      const updatedEscrow = {
-        ...escrow,
-        state: 'cancelled'
-      }
-      onUpdateEscrow(updatedEscrow)
+    try {
+      const config = getContractConfig(chainId)
+      const contract = getContract({
+        address: config.address,
+        abi: CONTRACT_ABI,
+        client: walletClient
+      })
+      
+      const tx = await contract.write.emergencyRefund([BigInt(escrowId)])
+      
+      console.log('Emergency refund transaction:', tx)
+      alert(`Emergency refund sent!\nTx: ${tx}\n\nPlease wait for confirmation...`)
+      
+      setTimeout(loadEscrowDetails, 3000)
+      
+    } catch (error) {
+      console.error('Failed to emergency refund:', error)
+      alert(`Emergency refund failed: ${error.message}`)
+    } finally {
       setIsProcessing(false)
-    }, 1000)
+    }
   }
 
-  const formatDate = (date) => {
-    return new Date(date).toLocaleDateString('zh-CN', {
+  const formatDate = (timestamp) => {
+    return new Date(timestamp * 1000).toLocaleDateString('en-US', {
       year: 'numeric',
       month: '2-digit',
       day: '2-digit',
@@ -120,115 +212,137 @@ function EscrowDetails({ escrow, onUpdateEscrow, onBack }) {
   }
 
   const getTimeoutDate = () => {
-    const timeoutDate = new Date(new Date(escrow.createdAt).getTime() + escrow.timeout)
-    return formatDate(timeoutDate)
+    if (!escrowData) return ''
+    const timeoutTimestamp = escrowData.createdAt + escrowData.timeout
+    return formatDate(timeoutTimestamp)
   }
 
   const getStateLabel = (state) => {
     const stateMap = {
-      'funded': '已创建',
-      'completed': '已完成',
-      'disputed': '争议中',
-      'cancelled': '已取消'
+      0: 'Created',
+      1: 'Funded',
+      2: 'Completed',
+      3: 'Disputed',
+      4: 'Cancelled'
     }
-    return stateMap[state] || state
+    return stateMap[state] || 'Unknown State'
   }
 
   const getRoleLabel = (role) => {
     const roleMap = {
-      'buyer': '买方',
-      'seller': '卖方',
-      'arbitrator': '仲裁员',
-      'observer': '观察者'
+      'buyer': 'Buyer',
+      'seller': 'Seller',
+      'arbitrator': 'Arbitrator',
+      'observer': 'Observer'
     }
     return roleMap[role] || role
+  }
+
+  if (loading) {
+    return (
+      <div className="escrow-details">
+        <div className="loading-spinner">Loading...</div>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="escrow-details">
+        <div className="error-message">{error}</div>
+        <button className="btn-back" onClick={onBack}>← Back</button>
+      </div>
+    )
+  }
+
+  if (!escrowData) {
+    return (
+      <div className="escrow-details">
+        <div className="error-message">Escrow data not found</div>
+        <button className="btn-back" onClick={onBack}>← Back</button>
+      </div>
+    )
   }
 
   return (
     <div className="escrow-details">
       <div className="details-header">
         <button className="btn-back" onClick={onBack}>
-          ← 返回列表
+          ← Back to List
         </button>
-        <h2>担保交易详情 #{escrow.id}</h2>
-        <div className={`state-badge ${escrow.state}`}>
-          {getStateLabel(escrow.state)}
+        <h2>Escrow Transaction Details #{escrowId}</h2>
+        <div className={`state-badge state-${escrowData.state}`}>
+          {getStateLabel(escrowData.state)}
         </div>
       </div>
 
       <div className="details-content">
         <div className="info-section">
-          <h3>基本信息</h3>
+          <h3>Basic Information</h3>
           <div className="info-grid">
             <div className="info-item">
-              <label>交易金额</label>
-              <value>{escrow.amount} ETH</value>
+              <label>Transaction Amount</label>
+              <value>Encrypted Amount (Privacy Protected)</value>
             </div>
             <div className="info-item">
-              <label>创建时间</label>
-              <value>{formatDate(escrow.createdAt)}</value>
+              <label>Created Time</label>
+              <value>{formatDate(escrowData.createdAt)}</value>
             </div>
             <div className="info-item">
-              <label>超时时间</label>
+              <label>Timeout</label>
               <value>{getTimeoutDate()}</value>
             </div>
             <div className="info-item">
-              <label>您的角色</label>
+              <label>Your Role</label>
               <value className="role-badge">{getRoleLabel(getUserRole())}</value>
             </div>
           </div>
         </div>
 
         <div className="description-section">
-          <h3>交易描述</h3>
-          <p className="description-text">{escrow.description}</p>
+          <h3>Transaction Description</h3>
+          <p className="description-text">{escrowData.description}</p>
         </div>
 
         <div className="participants-section">
-          <h3>参与方信息</h3>
+          <h3>Participants Information</h3>
           <div className="participants-list">
             <div className="participant-item">
-              <div className="participant-role">买方</div>
-              <div className="participant-address">{escrow.buyer}</div>
-              <div className="participant-status">
-                {escrow.signatures[escrow.buyer] ? '✅ 已签名' : '⏳ 未签名'}
-              </div>
+              <div className="participant-role">Buyer</div>
+              <div className="participant-address">{shortenAddress(escrowData.buyer)}</div>
+              <div className="participant-status">Encrypted Signature Status</div>
             </div>
             <div className="participant-item">
-              <div className="participant-role">卖方</div>
-              <div className="participant-address">{escrow.seller}</div>
-              <div className="participant-status">
-                {escrow.signatures[escrow.seller] ? '✅ 已签名' : '⏳ 未签名'}
-              </div>
+              <div className="participant-role">Seller</div>
+              <div className="participant-address">{shortenAddress(escrowData.seller)}</div>
+              <div className="participant-status">Encrypted Signature Status</div>
             </div>
             <div className="participant-item">
-              <div className="participant-role">仲裁员</div>
-              <div className="participant-address">{escrow.arbitrator}</div>
-              <div className="participant-status">
-                {escrow.signatures[escrow.arbitrator] ? '✅ 已签名' : '⏳ 未签名'}
-              </div>
+              <div className="participant-role">Arbitrator</div>
+              <div className="participant-address">{shortenAddress(escrowData.arbitrator)}</div>
+              <div className="participant-status">Encrypted Signature Status</div>
             </div>
           </div>
         </div>
 
         <div className="signature-section">
-          <h3>签名进度</h3>
+          <h3>Signature Progress</h3>
           <div className="signature-progress">
             <div className="progress-bar">
               <div 
                 className="progress-fill"
-                style={{ width: `${(escrow.signatureCount / 2) * 100}%` }}
+                style={{ width: `${(escrowData.signatureCount / 2) * 100}%` }}
               ></div>
             </div>
             <div className="progress-text">
-              {escrow.signatureCount}/2 签名完成
+              {escrowData.signatureCount}/2 signatures completed (requires 2/3 multisig)
             </div>
           </div>
         </div>
 
-        {escrow.state === 'funded' && (
+        {escrowData.state === 1 && ( /* Funded state */
           <div className="actions-section">
-            <h3>可执行操作</h3>
+            <h3>Available Actions</h3>
             <div className="action-buttons">
               {canUserSign() && (
                 <>
@@ -237,7 +351,7 @@ function EscrowDetails({ escrow, onUpdateEscrow, onBack }) {
                     onClick={handleSignRelease}
                     disabled={isProcessing}
                   >
-                    {isProcessing ? '处理中...' : '签名确认收货'}
+                    {isProcessing ? 'Processing...' : 'Sign Confirm Receipt'}
                   </button>
 
                   {(getUserRole() === 'buyer' || getUserRole() === 'arbitrator') && (
@@ -246,7 +360,7 @@ function EscrowDetails({ escrow, onUpdateEscrow, onBack }) {
                       onClick={handleSignRefund}
                       disabled={isProcessing}
                     >
-                      {isProcessing ? '处理中...' : '签名申请退款'}
+                      {isProcessing ? 'Processing...' : 'Sign Request Refund'}
                     </button>
                   )}
                 </>
@@ -258,33 +372,33 @@ function EscrowDetails({ escrow, onUpdateEscrow, onBack }) {
                   onClick={handleEmergencyRefund}
                   disabled={isProcessing}
                 >
-                  {isProcessing ? '处理中...' : '紧急退款'}
+                  {isProcessing ? 'Processing...' : 'Emergency Refund'}
                 </button>
               )}
 
               {!isParticipant() && (
-                <p className="no-actions">您不是此交易的参与方，无法执行操作</p>
+                <p className="no-actions">You are not a participant in this transaction and cannot perform actions</p>
               )}
 
               {hasUserSigned() && (
-                <p className="already-signed">✅ 您已签名，等待其他参与方操作</p>
+                <p className="already-signed">✅ You have already signed, waiting for other participants</p>
               )}
             </div>
           </div>
         )}
 
-        {escrow.state === 'completed' && (
+        {escrowData.state === 2 && ( /* Completed state */
           <div className="completed-section">
             <div className="success-message">
-              ✅ 交易已完成，资金已转给卖方
+              ✅ Transaction completed, funds transferred to seller
             </div>
           </div>
         )}
 
-        {escrow.state === 'cancelled' && (
+        {escrowData.state === 4 && ( /* Cancelled state */
           <div className="cancelled-section">
             <div className="cancelled-message">
-              ❌ 交易已取消，资金已退还给买方
+              ❌ Transaction cancelled, funds refunded to buyer
             </div>
           </div>
         )}

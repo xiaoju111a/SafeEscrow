@@ -2,7 +2,7 @@ function Footer() {
   return (
     <footer className="footer">
       <div className="footer-left">
-        <div>Donations address: 0x8e4c2d9bet905d2536e1f724e78476f0390</div>
+        <div>Arbitrator address: 0xD3d3d1e0a499CaFd2641452f1207Dfe2C5e1DFe8</div>
         <div>SafeEscrow version: 2.1.0</div>
       </div>
       

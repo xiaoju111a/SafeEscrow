@@ -8,24 +8,24 @@ function CreateEscrow({ onCreateEscrow }) {
     arbitrator: '',
     amount: '',
     description: '',
-    timeout: '7' // 默认7天
+    timeout: '7' // Default 7 days
   })
 
   const handleSubmit = (e) => {
     e.preventDefault()
     
     if (!formData.seller || !formData.arbitrator || !formData.amount || !formData.description) {
-      alert('请填写所有必填字段')
+      alert('Please fill in all required fields')
       return
     }
 
     if (formData.seller === address || formData.arbitrator === address) {
-      alert('卖方和仲裁员地址不能与买方相同')
+      alert('Seller and arbitrator addresses cannot be the same as buyer')
       return
     }
 
     if (formData.seller === formData.arbitrator) {
-      alert('卖方和仲裁员地址不能相同')
+      alert('Seller and arbitrator addresses cannot be the same')
       return
     }
 
@@ -35,10 +35,10 @@ function CreateEscrow({ onCreateEscrow }) {
       arbitrator: formData.arbitrator,
       amount: parseFloat(formData.amount),
       description: formData.description,
-      timeout: parseInt(formData.timeout) * 24 * 60 * 60 * 1000 // 转换为毫秒
+      timeout: parseInt(formData.timeout) * 24 * 60 * 60 * 1000 // Convert to milliseconds
     })
 
-    // 重置表单
+    // Reset form
     setFormData({
       seller: '',
       arbitrator: '',
@@ -57,11 +57,11 @@ function CreateEscrow({ onCreateEscrow }) {
 
   return (
     <div className="create-escrow">
-      <h2>创建担保交易</h2>
+      <h2>Create Escrow Transaction</h2>
       
       <form onSubmit={handleSubmit} className="escrow-form">
         <div className="form-group">
-          <label htmlFor="seller">卖方地址 *</label>
+          <label htmlFor="seller">Seller Address *</label>
           <input
             type="text"
             id="seller"
@@ -74,7 +74,7 @@ function CreateEscrow({ onCreateEscrow }) {
         </div>
 
         <div className="form-group">
-          <label htmlFor="arbitrator">仲裁员地址 *</label>
+          <label htmlFor="arbitrator">Arbitrator Address *</label>
           <input
             type="text"
             id="arbitrator"
@@ -87,7 +87,7 @@ function CreateEscrow({ onCreateEscrow }) {
         </div>
 
         <div className="form-group">
-          <label htmlFor="amount">金额 (ETH) *</label>
+          <label htmlFor="amount">Amount (ETH) *</label>
           <input
             type="number"
             id="amount"
@@ -102,48 +102,48 @@ function CreateEscrow({ onCreateEscrow }) {
         </div>
 
         <div className="form-group">
-          <label htmlFor="description">交易描述 *</label>
+          <label htmlFor="description">Transaction Description *</label>
           <textarea
             id="description"
             name="description"
             value={formData.description}
             onChange={handleChange}
-            placeholder="请详细描述交易内容..."
+            placeholder="Please describe the transaction details..."
             rows="4"
             required
           />
         </div>
 
         <div className="form-group">
-          <label htmlFor="timeout">超时时间 (天)</label>
+          <label htmlFor="timeout">Timeout (Days)</label>
           <select
             id="timeout"
             name="timeout"
             value={formData.timeout}
             onChange={handleChange}
           >
-            <option value="1">1天</option>
-            <option value="3">3天</option>
-            <option value="7">7天</option>
-            <option value="14">14天</option>
-            <option value="30">30天</option>
+            <option value="1">1 Day</option>
+            <option value="3">3 Days</option>
+            <option value="7">7 Days</option>
+            <option value="14">14 Days</option>
+            <option value="30">30 Days</option>
           </select>
         </div>
 
         <div className="form-actions">
           <button type="submit" className="btn-primary">
-            创建担保交易
+            Create Escrow Transaction
           </button>
         </div>
       </form>
 
       <div className="info-box">
-        <h3>2/3多签机制说明</h3>
+        <h3>2/3 Multisig Mechanism</h3>
         <ul>
-          <li><strong>正常完成：</strong>买方+卖方共同签名，资金转给卖方</li>
-          <li><strong>争议处理：</strong>仲裁员+任一方签名可解决争议</li>
-          <li><strong>退款情况：</strong>买方+仲裁员签名可退款给买方</li>
-          <li><strong>超时保护：</strong>超时后买方可单方面申请退款</li>
+          <li><strong>Normal Completion:</strong> Buyer + Seller signatures transfer funds to seller</li>
+          <li><strong>Dispute Resolution:</strong> Arbitrator + either party can resolve disputes</li>
+          <li><strong>Refund Case:</strong> Buyer + Arbitrator signatures can refund to buyer</li>
+          <li><strong>Timeout Protection:</strong> Buyer can unilaterally request refund after timeout</li>
         </ul>
       </div>
     </div>
