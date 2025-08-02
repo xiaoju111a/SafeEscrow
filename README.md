@@ -69,7 +69,7 @@ SafeEscrow leverages **Zama's FHEVM** to provide unprecedented privacy protectio
 
 1. **Clone the repository**
    ```bash
-   git clone <repository-url>
+   git clone https://github.com/xiaoju111a/SafeEscrow.git
    cd escrow-platform
    ```
 
